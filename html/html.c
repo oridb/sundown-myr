@@ -115,12 +115,46 @@ rndr_autolink(struct buf *ob, const struct buf *link, enum mkd_autolink type, vo
 	return 1;
 }
 
+int rndr_countrows(const struct buf *text)
+{
+	size_t i;
+	int lines;
+
+	lines = 0;
+	for (i = 0; i < text->size; i++)
+		if (text->data[i] == '\n')
+			lines++;
+	return lines;
+}
+
 static void
 rndr_blockcode(struct buf *ob, const struct buf *text, const struct buf *lang, void *opaque)
 {
+	int is_runcode;
+	size_t start, end;
+
 	if (ob->size) bufputc(ob, '\n');
 
-	if (lang && lang->size) {
+	is_runcode = 0;
+	if (lang && lang->size > 6 && memcmp(lang->data, "runmyr", 6) == 0) {
+		int lines;
+
+		lines =rndr_countrows(text); 
+		if (lines > 35)
+			lines = 35;
+		BUFPUTSL(ob, "<pre><textarea spellcheck=false rows=\"");
+		bufprintf(ob, "%d", lines + 2);
+		BUFPUTSL(ob, "\" id=\"");
+		start = 6;
+		end = lang->size;
+		while (start < lang->size && isspace(lang->data[start]))
+			start++;
+		while (end > start && isspace(lang->data[end - 1]))
+			end--;
+		escape_html(ob, lang->data + start, end - start);
+		BUFPUTSL(ob, "\">\n");
+		is_runcode = 1;
+	} else if (lang && lang->size) {
 		size_t i, cls;
 		BUFPUTSL(ob, "<pre><code class=\"");
 
@@ -141,14 +175,28 @@ rndr_blockcode(struct buf *ob, const struct buf *text, const struct buf *lang, v
 			}
 		}
 
-		BUFPUTSL(ob, "\">");
+		BUFPUTSL(ob, "\">\n");
 	} else
 		BUFPUTSL(ob, "<pre><code>");
 
 	if (text)
 		escape_html(ob, text->data, text->size);
 
-	BUFPUTSL(ob, "</code></pre>\n");
+	if (!is_runcode)
+		BUFPUTSL(ob, "</code></pre>\n");
+	else {
+		BUFPUTSL(ob, "</textarea></pre>\n");
+		BUFPUTSL(ob, "<p><button type=\"button\" onclick='runcode(\"");
+		escape_html(ob, lang->data + start, end - start);
+		BUFPUTSL(ob, "\");'>");
+		BUFPUTSL(ob, "Run!");
+		BUFPUTSL(ob, "</button>\n");
+		BUFPUTSL(ob, "<pre><code id=\"");
+		escape_html(ob, lang->data + start, end - start);
+		BUFPUTSL(ob, "_output\" style=\"display:none\">\n");
+		BUFPUTSL(ob, "Press 'Run' to see output!\n");
+		BUFPUTSL(ob, "</code></pre>\n");
+	}
 }
 
 static void
